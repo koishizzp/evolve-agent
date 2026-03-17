@@ -1,0 +1,7 @@
+anthropic
+pyyaml
+biopython
+pandas
+numpy
+subprocess
+loguru
