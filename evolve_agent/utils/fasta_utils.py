@@ -1,11 +1,10 @@
-"""FASTA 文件读写与验证。"""
-
 from pathlib import Path
+
 from Bio import SeqIO
 
 
 def validate_fasta(fasta_path: str) -> bool:
-    """验证 FASTA 文件是否合法。"""
+    """Return True when the FASTA file exists and contains at least one sequence."""
     path = Path(fasta_path)
     if not path.exists() or path.stat().st_size == 0:
         return False
@@ -14,7 +13,7 @@ def validate_fasta(fasta_path: str) -> bool:
 
 
 def read_fasta(fasta_path: str) -> dict:
-    """读取第一个 FASTA 记录并返回名称和序列。"""
+    """Read the first FASTA record and return id, description, and sequence."""
     if not validate_fasta(fasta_path):
         raise ValueError(f"Invalid FASTA file: {fasta_path}")
     record = next(SeqIO.parse(fasta_path, "fasta"))

@@ -3,11 +3,11 @@ from evolve_agent.tools.evolvepro_tool import EvolveProTool
 
 def test_evolvepro_requires_activity_csv(tmp_path):
     config = {
-        "evolvepro_path": str(tmp_path),
+        "evolvepro_root": str(tmp_path),
         "tmp_dir": str(tmp_path / "tmp"),
-        "output_dir": str(tmp_path / "out"),
-        "conda_env_evolvepro": "evolvepro",
-        "conda_env_plm": "plm",
+        "result_dir": str(tmp_path / "out"),
+        "evolvepro": {"conda_env": "evolvepro"},
+        "multievolve": {"conda_env": "plm"},
     }
     tool = EvolveProTool(config)
     result = tool.run({"fasta_path": "dummy.fasta"})

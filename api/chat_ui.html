@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Evolve Agent</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #f3efe2 0%, #e7f0ea 45%, #dce7f7 100%);
+      --panel: rgba(255, 255, 255, 0.82);
+      --border: rgba(21, 55, 85, 0.12);
+      --text: #17324a;
+      --muted: #4e657a;
+      --accent: #0f766e;
+      --accent-2: #1d4ed8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(32px, 5vw, 54px);
+      letter-spacing: 0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.3fr 0.9fr;
+      gap: 18px;
+    }
+    .panel {
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 18px 60px rgba(25, 53, 74, 0.08);
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+    }
+    textarea, input, select {
+      width: 100%;
+      border: 1px solid rgba(23, 50, 74, 0.14);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.88);
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    label { display: block; margin: 12px 0 8px; font-weight: 600; }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    .output {
+      white-space: pre-wrap;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 180px;
+      background: rgba(15, 23, 42, 0.04);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .status {
+      white-space: pre-wrap;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .muted { color: var(--muted); font-size: 14px; }
+    @media (max-width: 900px) {
+      .grid, .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Evolve Agent</h1>
+    <div class="sub">EvolvePro / MULTI-evolve 统一代理，支持直接运行和 OpenAI 风格聊天接口。</div>
+    <div class="grid">
+      <section class="panel">
+        <h2>LLM Chat</h2>
+        <div class="muted">输入自然语言任务，服务端会自动规划使用 `evolvepro`、`multievolve` 或两者串联。</div>
+        <label for="chatInput">消息</label>
+        <textarea id="chatInput">请用 /mnt/disk3/tio_nekton4/evolve-agent/examples/example_input.fasta 做一次冷启动优化。</textarea>
+        <div class="actions">
+          <button id="chatBtn">发送聊天请求</button>
+          <button id="statusBtn" type="button">刷新状态</button>
+        </div>
+        <label for="chatOutput">响应</label>
+        <div id="chatOutput" class="output"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Direct Runner</h2>
+        <label for="fastaPath">FASTA 路径</label>
+        <input id="fastaPath" value="/mnt/disk3/tio_nekton4/evolve-agent/examples/example_input.fasta" />
+        <div class="row">
+          <div>
+            <label for="activityCsv">活性 CSV</label>
+            <input id="activityCsv" placeholder="/path/to/activity.csv" />
+          </div>
+          <div>
+            <label for="strategy">策略</label>
+            <select id="strategy">
+              <option value="">auto</option>
+              <option value="multievolve">multievolve</option>
+              <option value="evolvepro">evolvepro</option>
+              <option value="both">both</option>
+            </select>
+          </div>
+        </div>
+        <label for="task">任务</label>
+        <textarea id="task">优化这个蛋白的活性，优先做冷启动探索。</textarea>
+        <div class="actions">
+          <button id="runBtn">执行任务</button>
+        </div>
+        <label for="runOutput">结果</label>
+        <div id="runOutput" class="output"></div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:18px;">
+      <h2>Upload + Status</h2>
+      <div class="row">
+        <div>
+          <label for="uploadFile">上传文件</label>
+          <input id="uploadFile" type="file" />
+          <div class="actions">
+            <button id="uploadBtn" type="button">上传</button>
+          </div>
+          <div id="uploadOutput" class="output" style="min-height:120px;"></div>
+        </div>
+        <div>
+          <label>服务状态</label>
+          <div id="statusOutput" class="output status" style="min-height:120px;"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    async function fetchJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        return text;
+      }
+    }
+
+    document.getElementById("chatBtn").addEventListener("click", async () => {
+      const message = document.getElementById("chatInput").value.trim();
+      const output = document.getElementById("chatOutput");
+      output.textContent = "Running...";
+      output.textContent = await fetchJson("/v1/chat/completions", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({messages: [{role: "user", content: message}]})
+      });
+    });
+
+    document.getElementById("runBtn").addEventListener("click", async () => {
+      const fastaPath = document.getElementById("fastaPath").value.trim();
+      const activityCsv = document.getElementById("activityCsv").value.trim();
+      const strategy = document.getElementById("strategy").value;
+      const task = document.getElementById("task").value.trim();
+      const output = document.getElementById("runOutput");
+      output.textContent = "Running...";
+      output.textContent = await fetchJson("/run_evolution", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          fasta_path: fastaPath,
+          activity_csv_path: activityCsv || null,
+          strategy: strategy || null,
+          task
+        })
+      });
+    });
+
+    document.getElementById("statusBtn").addEventListener("click", async () => {
+      document.getElementById("statusOutput").textContent = await fetchJson("/ui/status");
+    });
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      const file = document.getElementById("uploadFile").files[0];
+      const output = document.getElementById("uploadOutput");
+      if (!file) {
+        output.textContent = "No file selected.";
+        return;
+      }
+      output.textContent = "Uploading...";
+      const form = new FormData();
+      form.append("file", file);
+      output.textContent = await fetchJson("/ui/upload", {
+        method: "POST",
+        body: form
+      });
+    });
+
+    document.getElementById("statusBtn").click();
+  </script>
+</body>
+</html>

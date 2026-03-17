@@ -1,8 +1,25 @@
-evolvepro_path: ~/EvolvePro
-multievolve_path: ~/MULTI-evolve
-conda_env_evolvepro: evolvepro
-conda_env_plm: plm
-anthropic_api_key: ${ANTHROPIC_API_KEY}
-model: claude-sonnet-4-20250514
-output_dir: ./outputs
-tmp_dir: ./tmp
+evolvepro_root: /mnt/disk3/tio_nekton4/EvolvePro
+multievolve_root: /mnt/disk3/tio_nekton4/MULTI-evolve
+multievolve_model_dir: /mnt/disk3/tio_nekton4/MULTI-evolve/models
+
+tmp_dir: tmp
+result_dir: results
+upload_dir: uploads
+default_strategy: multievolve
+
+evolvepro:
+  conda_env: evolvepro
+  timeout_seconds: 7200
+  output_filename: evolvepro_recommendations.csv
+  command: []
+
+multievolve:
+  conda_env: plm
+  timeout_seconds: 7200
+  checkpoint_path: null
+  protein_name: null
+  residues_to_mutate: null
+  number_mutations_per_variant: 4
+  num_samples: 64
+  train_command: []
+  propose_command: []

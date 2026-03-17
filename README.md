@@ -1,126 +1,236 @@
-# evolve-agent
+# Evolve Agent
 
-## 1) 项目介绍 | Introduction
+`evolve-agent` 是一个面向蛋白质定向进化场景的部署型代理，参考 `D:\foldseek-agent` 的结构整理而成，目标不是只做一个 Python 库，而是提供：
 
-**中文**：`evolve-agent` 是一个面向蛋白质定向进化的 AI Agent 框架。用户通过自然语言描述优化目标（如提高结合亲和力、增强酶活性）并提供 FASTA 序列，Agent 会自动决策调用 **EvolvePro** 或 **MULTI-evolve**（或串联两者），执行命令、解析输出并生成可读摘要。
+- 基于 `.env` / YAML 的环境感知配置
+- EvolvePro 与 MULTI-evolve 的统一执行入口
+- OpenAI 兼容 LLM 规划与结果解释
+- FastAPI 服务、浏览器工作台、上传接口
+- `start_all.sh` / `stop_all.sh` / `status_all.sh` 这类服务器运维脚本
 
-**English**: `evolve-agent` is an AI Agent framework for protein directed evolution. Given a natural-language optimization goal and a FASTA sequence, it automatically routes to **EvolvePro**, **MULTI-evolve**, or both, executes workflows, parses outputs, and returns a user-friendly summary.
+当前默认针对你的服务器布局预设：
 
----
+```yaml
+evolvepro_root: /mnt/disk3/tio_nekton4/EvolvePro
+multievolve_root: /mnt/disk3/tio_nekton4/MULTI-evolve
+multievolve_model_dir: /mnt/disk3/tio_nekton4/MULTI-evolve/models
+```
 
-## 2) EvolvePro vs MULTI-evolve 适用场景对比 | Comparison
+## 目录结构
 
-| 维度 / Aspect | EvolvePro | MULTI-evolve |
-|---|---|---|
-| 典型场景 | few-shot 主动学习，迭代优化 | 一轮 ML 引导多突变体探索 |
-| 数据需求 | 需要少量实验活性数据（每轮 10-16） | 可在无/少量实验数据下启动 |
-| 建模特点 | 迭代学习，适合持续回流实验数据 | 蛋白语言模型 + 上位性建模，擅长协同突变 |
-| 推荐使用时机 | 已有初始实验数据后精修 | 冷启动或早期探索阶段 |
+```text
+api/
+  main.py
+  chat_ui.html
+config/
+  config.yaml
+evolve_agent/
+  agent.py
+  settings.py
+  service.py
+  chat.py
+  reasoner.py
+  parser/
+  planner/
+  tools/
+main.py
+start_agent.sh
+start_all.sh
+stop_all.sh
+status_all.sh
+restart.sh
+smoke_test.sh
+```
 
----
+## 安装
 
-## 3) 安装步骤 | Installation
-
-### 3.1 安装 Python 依赖
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3.2 安装项目
+如果你是直接在服务器上运行，建议先复制环境变量模板：
+
 ```bash
-pip install -e .
+cp .env.example .env
 ```
 
-### 3.3 Conda 环境准备（示例）
+## LLM 配置
+
+这里不再绑定 `Anthropic`。和 `foldseek-agent` 一样，直接复用 OpenAI 兼容变量：
+
 ```bash
-conda create -n evolvepro python=3.10 -y
-conda create -n plm python=3.10 -y
+OPENAI_BASE_URL=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-并确保服务器上已安装：
-- EvolvePro: https://github.com/mat10d/EvolvePro
-- MULTI-evolve: https://github.com/ArcInstitute/MULTI-evolve
+如果不配置 LLM，代理仍可使用启发式规划兜底。
 
----
+## 配置说明
 
-## 4) 配置说明 | Configuration
+默认配置文件是 [config/config.yaml](/D:/evolve-agent/config/config.yaml)。
 
-配置文件：`config/config.yaml`
+重点字段：
 
-- `evolvepro_path`: EvolvePro 安装目录（默认 `~/EvolvePro`）
-- `multievolve_path`: MULTI-evolve 安装目录
-- `conda_env_evolvepro`: EvolvePro 执行环境名
-- `conda_env_plm`: PLM embedding 环境名
-- `anthropic_api_key`: 从环境变量读取（`${ANTHROPIC_API_KEY}`）
-- `model`: 默认 `claude-sonnet-4-20250514`
-- `output_dir`: 输出目录（默认 `./outputs`）
-- `tmp_dir`: 临时目录（默认 `./tmp`）
+- `evolvepro_root`: EvolvePro 根目录
+- `multievolve_root`: MULTI-evolve 根目录
+- `multievolve_model_dir`: MULTI-evolve 模型目录
+- `default_strategy`: 默认策略，通常为 `multievolve`
+- `evolvepro.command`: 可选，显式指定 EvolvePro 命令模板
+- `multievolve.train_command`: 可选，显式指定 MULTI-evolve 训练命令模板
+- `multievolve.propose_command`: 可选，显式指定 MULTI-evolve 推理命令模板
 
----
+命令模板支持字符串占位，例如：
 
-## 5) 使用示例 | Usage
-
-### CLI 命令
-```bash
-python scripts/run_agent.py \
-  --fasta examples/example_input.fasta \
-  --task "优化这个抗体的结合亲和力" \
-  --activity-csv data/activity.csv \
-  --verbose
+```json
+["conda","run","-n","evolvepro","python","{root}/some_script.py","--fasta","{fasta_path}","--output","{output_csv}"]
 ```
 
-### 示例输出（节选）
+可通过 `.env` 中的以下变量覆盖：
+
+```bash
+EVOLVE_AGENT_EVOLVEPRO_COMMAND_JSON=[...]
+EVOLVE_AGENT_MULTIEVOLVE_TRAIN_COMMAND_JSON=[...]
+EVOLVE_AGENT_MULTIEVOLVE_PROPOSE_COMMAND_JSON=[...]
+EVOLVE_AGENT_MULTIEVOLVE_CHECKPOINT_PATH=/path/to/checkpoint
+```
+
+## CLI 用法
+
+自动规划：
+
+```bash
+python main.py run examples/example_input.fasta \
+  --task "优化这个蛋白的活性，优先考虑冷启动探索"
+```
+
+强制走 MULTI-evolve：
+
+```bash
+python main.py multievolve examples/example_input.fasta \
+  --task "给出多突变候选"
+```
+
+强制走 EvolvePro：
+
+```bash
+python main.py evolvepro examples/example_input.fasta \
+  --task "基于已有实验数据继续优化" \
+  --activity-csv /path/to/activity.csv
+```
+
+查看状态：
+
+```bash
+python main.py status
+python main.py list-tools
+```
+
+## API 用法
+
+启动：
+
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port 8110
+```
+
+或者：
+
+```bash
+./start_all.sh
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8110/health
+curl http://127.0.0.1:8110/ui/status
+curl http://127.0.0.1:8110/evolve/tools
+```
+
+直接执行：
+
+```bash
+curl -X POST http://127.0.0.1:8110/run_evolution \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fasta_path": "/path/to/query.fasta",
+    "task": "优化这个蛋白的活性",
+    "strategy": "multievolve"
+  }'
+```
+
+OpenAI 兼容聊天：
+
+```bash
+curl -X POST http://127.0.0.1:8110/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "evolve-agent",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用 /path/to/query.fasta 做一次冷启动优化"
+      }
+    ]
+  }'
+```
+
+上传文件：
+
+```bash
+curl -X POST http://127.0.0.1:8110/ui/upload \
+  -F "file=@/local/path/query.fasta"
+```
+
+## 浏览器工作台
+
+服务启动后，直接访问：
+
 ```text
-=== evolve-agent summary ===
-任务: 优化这个抗体的结合亲和力
-策略: evolvepro
-推荐 Top 变体: {'sequence': '...', 'mutations': 'A25V', 'score': 1.42}
-建议下一步：合成 Top 变体并进行湿实验验证，随后将新数据回流继续优化。
+http://服务器IP:8110/
 ```
 
----
+页面包含：
 
-## 6) 项目结构 | Project Structure
+- `LLM Chat`: 用自然语言驱动规划与执行
+- `Direct Runner`: 直接填写 FASTA / CSV / strategy 执行
+- `Upload + Status`: 上传文件并查看服务状态
 
-```text
-evolve-agent/
-├── README.md
-├── requirements.txt
-├── setup.py
-├── config/
-│   └── config.yaml
-├── evolve_agent/
-│   ├── __init__.py
-│   ├── agent.py
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── base_tool.py
-│   │   ├── evolvepro_tool.py
-│   │   └── multievolve_tool.py
-│   ├── planner/
-│   │   ├── __init__.py
-│   │   └── planner.py
-│   ├── parser/
-│   │   ├── __init__.py
-│   │   └── output_parser.py
-│   └── utils/
-│       ├── __init__.py
-│       ├── fasta_utils.py
-│       └── logger.py
-├── scripts/
-│   └── run_agent.py
-├── examples/
-│   ├── example_input.fasta
-│   └── example_run.sh
-└── tests/
-    ├── test_evolvepro_tool.py
-    └── test_multievolve_tool.py
+## MULTI-evolve 说明
+
+当前默认封装优先尝试官方常见脚本：
+
+- `p1_train.py`
+- `p2_propose.py`
+
+如果检测不到这些脚本，就会退回到显式命令模板配置，不再像旧仓库那样写死一个很可能不存在的 `run_multievolve.py`。
+
+注意：
+
+- 如果你没有 `activity_csv_path`，且没有配置已有 `checkpoint_path`，默认的 `p2_propose.py` 流程无法直接运行。
+- 这时应在 `.env` 或 `config.yaml` 中补 `EVOLVE_AGENT_MULTIEVOLVE_CHECKPOINT_PATH`，或者提供自定义 `multievolve.propose_command`。
+
+## EvolvePro 说明
+
+当前保留了对旧三步流程的自动探测：
+
+- `scripts/process/process_data.py`
+- `scripts/plm/extract_embeddings.py`
+- `scripts/exp/run_evolvepro.py`
+
+如果你的 EvolvePro 实际入口不同，请直接配置 `evolvepro.command` 或 `EVOLVE_AGENT_EVOLVEPRO_COMMAND_JSON`。
+
+## 测试
+
+```bash
+pytest -q
 ```
 
----
+## 引用
 
-## 7) 引用信息 | Citation
-
-- foldseek-agent design inspiration: https://github.com/koishizzp/foldseek-agent
-- EvolvePro: Matreyek Lab, https://github.com/mat10d/EvolvePro
-- MULTI-evolve: Arc Institute, https://github.com/ArcInstitute/MULTI-evolve
+- Foldseek Agent: `D:\foldseek-agent`
+- EvolvePro: <https://github.com/mat10d/EvolvePro>
+- MULTI-evolve: <https://github.com/ArcInstitute/MULTI-evolve>

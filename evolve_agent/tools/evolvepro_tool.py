@@ -1,37 +1,35 @@
-"""EvolvePro 工具封装。"""
-
 from __future__ import annotations
 
 import csv
 import subprocess
 from pathlib import Path
 
-from .base_tool import BaseTool
 from evolve_agent.utils.logger import logger
+
+from .base_tool import BaseTool
 
 
 class EvolveProTool(BaseTool):
-    """适用于 few-shot 主动学习场景，
-    需要少量实验活性数据（每轮 10-16 个变体），迭代优化单一或多属性蛋白质活性。"""
+    """EvolvePro wrapper with config-driven command execution."""
 
     name = "evolvepro"
-    description = (
-        "适用于 few-shot 主动学习场景，需要少量实验活性数据（每轮 10-16 个变体），"
-        "迭代优化单一或多属性蛋白质活性。"
-    )
+    description = "Few-shot active-learning workflow for protein engineering."
 
     def __init__(self, config: dict):
-        self.config = config
-        self.root = Path(config["evolvepro_path"]).expanduser()
-        self.tmp_dir = Path(config["tmp_dir"]).expanduser()
-        self.output_dir = Path(config["output_dir"]).expanduser()
-        self.tmp_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__(config)
+        evolvepro = config.get("evolvepro", {})
+        self.root = Path(config["evolvepro_root"]).expanduser() if config.get("evolvepro_root") else Path(".")
+        self.tmp_dir = self.ensure_dir(config["tmp_dir"])
+        self.result_dir = self.ensure_dir(config["result_dir"])
+        self.conda_env = str(evolvepro.get("conda_env") or "evolvepro")
+        self.embedding_env = str(config.get("multievolve", {}).get("conda_env") or self.conda_env)
+        self.timeout_seconds = int(evolvepro.get("timeout_seconds") or 7200)
+        self.command_template = [str(item) for item in evolvepro.get("command", []) if str(item).strip()]
+        self.output_filename = str(evolvepro.get("output_filename") or "evolvepro_recommendations.csv")
 
     def _run_cmd(self, cmd: list[str], step_name: str) -> subprocess.CompletedProcess:
-        """执行子命令并记录日志。"""
-        logger.info(f"[EvolvePro] {step_name}: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        logger.info("[EvolvePro] %s: %s", step_name, self.command_text(cmd))
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout_seconds)
         logger.debug(result.stdout)
         if result.returncode != 0:
             logger.error(result.stderr)
@@ -39,8 +37,8 @@ class EvolveProTool(BaseTool):
         return result
 
     def _preview_csv(self, csv_path: Path, rows: int = 5) -> str:
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
+        with csv_path.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
             selected = []
             for idx, row in enumerate(reader):
                 if idx >= rows:
@@ -51,6 +49,22 @@ class EvolveProTool(BaseTool):
     def run(self, input_data: dict) -> dict:
         fasta_path = input_data["fasta_path"]
         activity_csv = input_data.get("activity_csv_path")
+        task = input_data.get("task", "")
+        params = dict(input_data.get("params") or {})
+        output_dir = self.ensure_dir(input_data.get("result_dir") or self.result_dir)
+        result_csv = output_dir / self.output_filename
+
+        template_values = {
+            "root": str(self.root),
+            "fasta_path": fasta_path,
+            "activity_csv_path": activity_csv or "",
+            "task": task,
+            "output_dir": str(output_dir),
+            "result_dir": str(output_dir),
+            "output_csv": str(result_csv),
+            "tmp_dir": str(self.tmp_dir),
+            **params,
+        }
 
         if not activity_csv:
             return {
@@ -61,67 +75,81 @@ class EvolveProTool(BaseTool):
             }
 
         try:
-            # Step 1 - Process: 预处理 FASTA 与活性数据
-            process_out = self.tmp_dir / "evolvepro_processed.csv"
-            process_cmd = [
-                "conda",
-                "run",
-                "-n",
-                self.config["conda_env_evolvepro"],
-                "python",
-                str(self.root / "scripts" / "process" / "process_data.py"),
-                "--fasta",
-                fasta_path,
-                "--activity-csv",
-                activity_csv,
-                "--output",
-                str(process_out),
-            ]
-            self._run_cmd(process_cmd, "Step1 Process")
+            commands: list[list[str]] = []
+            if self.command_template:
+                commands.append(self.format_command(self.command_template, template_values))
+            else:
+                process_script = self.root / "scripts" / "process" / "process_data.py"
+                embedding_script = self.root / "scripts" / "plm" / "extract_embeddings.py"
+                run_script = self.root / "scripts" / "exp" / "run_evolvepro.py"
+                if not all(path.exists() for path in (process_script, embedding_script, run_script)):
+                    raise RuntimeError(
+                        "Unable to infer EvolvePro entrypoint. "
+                        "Set evolvepro.command in config/config.yaml or EVOLVE_AGENT_EVOLVEPRO_COMMAND_JSON."
+                    )
 
-            # Step 2 - PLM Embedding: 提取 embedding（该步骤非常耗时）
-            print("[EvolvePro] Step2 PLM Embedding started... this may take a long time.")
-            logger.info("[EvolvePro] Step2 PLM Embedding started... this may take a long time.")
-            embedding_out = self.tmp_dir / "evolvepro_embeddings.npy"
-            embedding_cmd = [
-                "conda",
-                "run",
-                "-n",
-                self.config["conda_env_plm"],
-                "python",
-                str(self.root / "scripts" / "plm" / "extract_embeddings.py"),
-                "--input",
-                str(process_out),
-                "--output",
-                str(embedding_out),
-            ]
-            self._run_cmd(embedding_cmd, "Step2 PLM Embedding")
+                process_out = self.tmp_dir / "evolvepro_processed.csv"
+                embedding_out = self.tmp_dir / "evolvepro_embeddings.npy"
+                commands.extend(
+                    [
+                        [
+                            "conda",
+                            "run",
+                            "-n",
+                            self.conda_env,
+                            "python",
+                            str(process_script),
+                            "--fasta",
+                            fasta_path,
+                            "--activity-csv",
+                            activity_csv,
+                            "--output",
+                            str(process_out),
+                        ],
+                        [
+                            "conda",
+                            "run",
+                            "-n",
+                            self.embedding_env,
+                            "python",
+                            str(embedding_script),
+                            "--input",
+                            str(process_out),
+                            "--output",
+                            str(embedding_out),
+                        ],
+                        [
+                            "conda",
+                            "run",
+                            "-n",
+                            self.conda_env,
+                            "python",
+                            str(run_script),
+                            "--processed-csv",
+                            str(process_out),
+                            "--embeddings",
+                            str(embedding_out),
+                            "--output",
+                            str(result_csv),
+                        ],
+                    ]
+                )
 
-            # Step 3 - Run EVOLVEpro: 执行主模型
-            result_csv = self.output_dir / "evolvepro_recommendations.csv"
-            run_cmd = [
-                "conda",
-                "run",
-                "-n",
-                self.config["conda_env_evolvepro"],
-                "python",
-                str(self.root / "scripts" / "exp" / "run_evolvepro.py"),
-                "--processed-csv",
-                str(process_out),
-                "--embeddings",
-                str(embedding_out),
-                "--output",
-                str(result_csv),
-            ]
-            self._run_cmd(run_cmd, "Step3 Run EVOLVEpro")
+            last_stdout = ""
+            for index, command in enumerate(commands, start=1):
+                last_stdout = self._run_cmd(command, f"Step{index}").stdout
 
-            # Step 4 - 解析输出 CSV
+            if not result_csv.exists():
+                raise RuntimeError(f"EvolvePro finished without producing expected output: {result_csv}")
+
             preview = self._preview_csv(result_csv)
             return {
                 "success": True,
                 "output": f"EvolvePro finished. Top predictions:\n{preview}",
                 "error": "",
                 "result_files": [str(result_csv)],
+                "command": [self.command_text(item) for item in commands],
+                "stdout": last_stdout,
             }
         except Exception as exc:  # noqa: BLE001
             logger.exception("EvolvePro execution failed")
@@ -129,8 +157,8 @@ class EvolveProTool(BaseTool):
                 "success": False,
                 "output": "",
                 "error": (
-                    f"EvolvePro 执行失败: {exc}. "
-                    "请检查 conda 环境、脚本路径、输入 CSV/FASTA 格式是否正确。"
+                    f"EvolvePro execution failed: {exc}. "
+                    "Check the conda environment, script paths, and evolvepro.command override."
                 ),
                 "result_files": [],
             }
