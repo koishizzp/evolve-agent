@@ -1,0 +1,8 @@
+evolvepro_path: ~/EvolvePro
+multievolve_path: ~/MULTI-evolve
+conda_env_evolvepro: evolvepro
+conda_env_plm: plm
+anthropic_api_key: ${ANTHROPIC_API_KEY}
+model: claude-sonnet-4-20250514
+output_dir: ./outputs
+tmp_dir: ./tmp
