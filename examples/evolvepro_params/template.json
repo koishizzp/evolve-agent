@@ -1,0 +1,9 @@
+{
+  "protein_name": "REPLACE_ME",
+  "system_name": "REPLACE_ME",
+  "embeddings_type": "esm2_15B",
+  "process_script": "scripts/process/exp_process.py",
+  "plm_script": "scripts/plm/esm2_15B_exp.sh",
+  "exp_script": "REPLACE_ME",
+  "result_glob": "output/**/*.csv"
+}

@@ -1,0 +1,9 @@
+{
+  "protein_name": "bxb1",
+  "system_name": "bxb1",
+  "embeddings_type": "esm2_15B",
+  "process_script": "scripts/process/exp_process.py",
+  "plm_script": "scripts/plm/esm2_15B_exp.sh",
+  "exp_script": "scripts/exp/bxb1.py",
+  "result_glob": "output/**/*.csv"
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from evolve_agent import EvolveAgent
@@ -13,10 +14,32 @@ from evolve_agent.settings import Settings
 SUBCOMMANDS = {"run", "evolvepro", "multievolve", "status", "list-tools"}
 
 
+def parse_params_json(value: str) -> dict[str, Any]:
+    payload = value
+    if value.startswith("@"):
+        try:
+            payload = Path(value[1:]).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise argparse.ArgumentTypeError(f"Unable to read params file for --params-json: {exc}") from exc
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid JSON for --params-json: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError("--params-json must decode to a JSON object")
+    return parsed
+
+
 def build_common_run_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("fasta", help="Path to FASTA file")
     parser.add_argument("--task", required=True, help="Natural-language optimization goal")
     parser.add_argument("--activity-csv", default=None, help="Optional activity CSV path")
+    parser.add_argument(
+        "--params-json",
+        default=None,
+        type=parse_params_json,
+        help="Optional JSON object string or @path/to/file.json for tool params",
+    )
     parser.add_argument("--json-out", default=None, help="Optional JSON output path")
 
 
@@ -65,6 +88,7 @@ def _run(agent: EvolveAgent, args: argparse.Namespace, strategy: str | None = No
         fasta_path=args.fasta,
         activity_csv_path=args.activity_csv,
         strategy=strategy,
+        params=getattr(args, "params_json", None),
     )
     _dump_payload(result, getattr(args, "json_out", None))
 

@@ -12,6 +12,26 @@ evolvepro:
   timeout_seconds: 7200
   output_filename: evolvepro_recommendations.csv
   command: []
+  process_script: null
+  plm_script: null
+  exp_script: null
+  result_glob: output/**/*.csv
+  shell_executable: bash
+  params:
+    protein_name: null
+    system_name: null
+    embeddings_type: esm2_15B
+    # 你的 scripts/exp 目录里当前可见:
+    # - bxb1.py
+    # - mlv.py
+    # - t7_pol.py
+    #
+    # 你的 scripts/plm 目录里当前和 exp 最直接对应的是:
+    # - esm2_15B_exp.sh
+    #
+    # 如果你固定跑某一个系统，建议直接把上面两个字段填好。
+    # assay_name 在你给的 exp/*.py 里并没有出现，通常不用配；
+    # 只有你的本地 exp_process.py 明确要求时再额外传。
 
 multievolve:
   conda_env: plm

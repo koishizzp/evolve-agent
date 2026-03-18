@@ -79,6 +79,9 @@ OPENAI_MODEL=gpt-4o-mini
 - `multievolve_model_dir`: MULTI-evolve 模型目录
 - `default_strategy`: 默认策略，通常为 `multievolve`
 - `evolvepro.command`: 可选，显式指定 EvolvePro 命令模板
+- `evolvepro.process_script` / `evolvepro.plm_script` / `evolvepro.exp_script`: 可选，指定官方 EvolvePro 脚本布局下的三个步骤
+- `evolvepro.result_glob`: 可选，官方 EvolvePro 脚本把结果写回仓库目录时，用于定位结果 CSV
+- `evolvepro.params`: 可选，给 EvolvePro 预置默认参数；CLI / API 传入的 `params` 会覆盖这些默认值
 - `multievolve.train_command`: 可选，显式指定 MULTI-evolve 训练命令模板
 - `multievolve.propose_command`: 可选，显式指定 MULTI-evolve 推理命令模板
 
@@ -118,8 +121,11 @@ python main.py multievolve examples/example_input.fasta \
 ```bash
 python main.py evolvepro examples/example_input.fasta \
   --task "基于已有实验数据继续优化" \
-  --activity-csv /path/to/activity.csv
+  --activity-csv /path/to/activity.csv \
+  --params-json @examples/evolvepro_params/bxb1.json
 ```
+
+如果你已经把这些值写进 [config/config.yaml](/D:/evolve-agent/config/config.yaml)，也可以不传 `--params-json`。
 
 查看状态：
 
@@ -158,7 +164,13 @@ curl -X POST http://127.0.0.1:8110/run_evolution \
   -d '{
     "fasta_path": "/path/to/query.fasta",
     "task": "优化这个蛋白的活性",
-    "strategy": "multievolve"
+    "strategy": "evolvepro",
+    "activity_csv_path": "/path/to/activity.csv",
+    "params": {
+      "protein_name": "Bxb1",
+      "system_name": "bxb1",
+      "embeddings_type": "esm2_15B"
+    }
   }'
 ```
 
@@ -215,13 +227,30 @@ http://服务器IP:8110/
 
 ## EvolvePro 说明
 
-当前保留了对旧三步流程的自动探测：
+当前 EvolvePro 封装的优先级如下：
 
-- `scripts/process/process_data.py`
-- `scripts/plm/extract_embeddings.py`
-- `scripts/exp/run_evolvepro.py`
+1. 如果配置了 `evolvepro.command`，直接按显式命令模板执行。
+2. 如果仓库里仍然存在旧三步流程，则兼容：
+   - `scripts/process/process_data.py`
+   - `scripts/plm/extract_embeddings.py`
+   - `scripts/exp/run_evolvepro.py`
+3. 如果检测到官方 EvolvePro 风格的 `scripts/` 目录，则自动尝试：
+   - `scripts/process/exp_process.py` 或 `scripts/process/dms_process.py`
+   - `scripts/plm/{embeddings_type}_exp.sh`，或显式指定 `evolvepro.plm_script`
+   - `scripts/exp/{system_name}.py`，或显式指定 `evolvepro.exp_script`
 
-如果你的 EvolvePro 实际入口不同，请直接配置 `evolvepro.command` 或 `EVOLVE_AGENT_EVOLVEPRO_COMMAND_JSON`。
+注意：
+
+- 官方 EvolvePro 的 `scripts/plm/*.sh` 和 `scripts/exp/*.py` 更像预配置实验脚本，不是通用 CLI；自动兼容时通常至少需要传 `protein_name`、`system_name`、`embeddings_type`。
+- 你给出的目录里 `scripts/exp` 当前对应 `bxb1.py`、`mlv.py`、`t7_pol.py`；仓库内已补了现成模板：
+  - [examples/evolvepro_params/bxb1.json](/D:/evolve-agent/examples/evolvepro_params/bxb1.json)
+  - [examples/evolvepro_params/mlv.json](/D:/evolve-agent/examples/evolvepro_params/mlv.json)
+  - [examples/evolvepro_params/t7_pol.json](/D:/evolve-agent/examples/evolvepro_params/t7_pol.json)
+- 从你贴过来的 `bxb1.py`、`mlv.py`、`t7_pol.py` 看，脚本本身不使用 `assay_name`；它们直接读取 `data/exp/exp_data/<protein>/rounds` 和 `data/exp/exp_data/<protein>/esm`。
+- 因此在你当前这套目录里，可以先把 `assay_name` 当成“不需要填”。只有当你本地的 `scripts/process/exp_process.py` 明确报缺少 `--assay_name` 时，再额外传它。
+- 有些 EvolvePro fork 里的 `scripts/process/exp_process.py` 不是 CLI，而是直接运行的固定脚本。如果脚本里没有 `argparse` / `sys.argv`，代理会自动改成无参数执行，并预建 `output/exp`、`output/exp_results`、`data/exp/wt_fasta`。
+- 官方脚本常把结果写到 `output/` 而不是本代理默认的 `results/`，所以默认配置已改成 `evolvepro.result_glob: output/**/*.csv`。如果你的 fork 输出位置不同，再通过 `params.result_file`、`params.result_glob` 或 `evolvepro.result_glob` 覆盖。
+- 如果你的 EvolvePro 是自定义 fork，最稳妥的方式仍然是直接配置 `evolvepro.command` 或 `EVOLVE_AGENT_EVOLVEPRO_COMMAND_JSON`。
 
 ## 测试
 
